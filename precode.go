@@ -20,21 +20,20 @@ func Generator(ctx context.Context, ch chan<- int64, fn func(int64)) {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return // Прекращаем работу при отмене контекста
 		case ch <- num:
 			fn(num)
-			num++
+			num++ // Увеличиваем номер
 		}
 	}
 }
 
 // Worker читает число из канала in и пишет его в канал out.
 func Worker(in <-chan int64, out chan<- int64) {
-	defer close(out) // Закрываем результирующий канал при выходе из функции.
-
-	for num := range in { // Используем цикл по каналу.
+	defer close(out) // Закрываем выходной канал при завершении работы
+	for num := range in {
 		out <- num
-		time.Sleep(1 * time.Millisecond) // Имитируем задержку.
+		time.Sleep(1 * time.Millisecond) // Имитируем задержку
 	}
 }
 
@@ -45,29 +44,29 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	var inputSum int64   // Сумма сгенерированных чисел.
-	var inputCount int64 // Количество сгенерированных чисел.
+	var inputSum int64   // Сумма сгенерированных чисел
+	var inputCount int64 // Количество сгенерированных чисел
 
-	// Запускаем генератор, который будет подсчитывать сумму и количество.
+	// Запускаем генератор
 	go Generator(ctx, chIn, func(i int64) {
-		atomic.AddInt64(&inputSum, i)   // Используем атомарный доступ для суммы.
-		atomic.AddInt64(&inputCount, 1) // Используем атомарный доступ для количества.
+		atomic.AddInt64(&inputSum, i)   // Атомарно обновляем сумму
+		atomic.AddInt64(&inputCount, 1) // Атомарно обновляем количество
 	})
 
-	const NumOut = 5 // Количество обрабатывающих горутин.
+	const NumOut = 5 // Количество обрабатывающих горутин
 	outs := make([]chan int64, NumOut)
 
 	for i := 0; i < NumOut; i++ {
-		// Создаем каналы и запускаем worker.
+		// Создаем каналы и запускаем worker
 		outs[i] = make(chan int64)
 		go Worker(chIn, outs[i])
 	}
 
-	chOut := make(chan int64, NumOut) // Канал для итоговых результатов.
 	var wg sync.WaitGroup
+	chOut := make(chan int64, NumOut) // Канал для итоговых результатов
 
-	// Собираем числа из каналов outs.
-	for _, out := range outs {
+	// Собираем числа из каналов outs
+	for i, out := range outs {
 		wg.Add(1)
 		go func(ch <-chan int64) {
 			defer wg.Done()
@@ -77,23 +76,24 @@ func main() {
 		}(out)
 	}
 
+	// Горутина, которая ждет завершения всех worker'ов и закрывает chOut
 	go func() {
-		wg.Wait()    // Ждем завершения всех worker'ов.
-		close(chOut) // Закрываем результирующий канал.
+		wg.Wait()
+		close(chOut)
 	}()
 
-	var count int64 // Количество чисел результирующего канала.
-	var sum int64   // Сумма чисел результирующего канала.
+	var count int64 // Количество чисел результирующего канала
+	var sum int64   // Сумма чисел результирующего канала
 
-	// Читаем числа из результирующего канала.
+	// Читаем числа из результирующего канала
 	for num := range chOut {
-		atomic.AddInt64(&count, 1) // Используем атомарный доступ для количества.
-		atomic.AddInt64(&sum, num) // Используем атомарный доступ для суммы.
+		atomic.AddInt64(&count, 1)
+		atomic.AddInt64(&sum, num)
 	}
 
 	// Выводим результаты
-	fmt.Println("Количество чисел:", inputCount, "количество из chOut:", count)
-	fmt.Println("Сумма чисел:", inputSum, "сумма из chOut:", sum)
+	fmt.Println("Количество чисел:", inputCount, "чисел получено:", count)
+	fmt.Println("Сумма чисел:", inputSum, "сумма получена:", sum)
 
 	// Проверка результатов
 	if inputSum != sum {
